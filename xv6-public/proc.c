@@ -607,3 +607,9 @@ getppid(void)
 {
     return myproc()->parent->pid;
 }
+
+int
+getlev(void)
+{
+    return myproc()->priority;
+}

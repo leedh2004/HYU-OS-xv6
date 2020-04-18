@@ -99,3 +99,9 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+int
+sys_getlev(void)
+{
+    return getlev();
+}
