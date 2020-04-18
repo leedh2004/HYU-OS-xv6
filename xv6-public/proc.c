@@ -19,6 +19,9 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+int getlev(void);
+int set_cpu_share(int percent);
+void renew_stride(void);
 
 // for Stride Scheudling
 int mlfq_distance = 0;
@@ -116,6 +119,12 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
+  //Dohyun init
+  p->priority = 0;
+  p->tick = 0;
+  p->percent = 0;
+  p->stride = 0;
+  p->distance = 0;
 
   return p;
 }
@@ -261,8 +270,25 @@ exit(void)
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == curproc){
       p->parent = initproc;
+      //Dohyun
+      if(p->percent > 0){
+        total_percent -= p->percent;
+        p->percent = 0;
+        p->stride = 0;
+        p->distance = 0;
+      }
+      //Dohyun End
       if(p->state == ZOMBIE)
         wakeup1(initproc);
+    }
+  }
+  if(curproc->percent > 0){
+    total_percent -= curproc->percent;
+    curproc->percent = 0;
+    curproc->stride = 0;
+    curproc->distance = 0;
+    if(total_percent > 0){
+        renew_stride();
     }
   }
 
@@ -329,16 +355,17 @@ int
 decide_scheduler(void)
 {
     if(total_percent == 0) return 1;
+    else{
+        int stride_stride = 100 / total_percent;
+        int mlfq_stride = 100 / (100 - total_percent);
 
-    int stride_stride = 100 / total_percent;
-    int mlfq_stride = 100 / (100 - total_percent);
-
-    if(mlfq_distance < stride_distance){
-        mlfq_distance += mlfq_stride;
-        return 1;
-    }else{
-        stride_distance += stride_stride;
-        return 0;
+        if(mlfq_distance < stride_distance){
+            mlfq_distance += mlfq_stride;
+            return 1;
+        }else{
+            stride_distance += stride_stride;
+            return 0;
+        }
     }
 }
 
@@ -360,64 +387,101 @@ scheduler(void)
   for(;;){
     // Enable interrupts on this processor.
     sti();
-
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    
-    // Dohyun
-    int top_priority = 3;
-
-    // Get highest Priority, in this code most "lower priority number" means  higher than other.
-    for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
-        if(temp_p->state != RUNNABLE){
-            continue;
-        }
-        if(top_priority > temp_p->priority){
-            top_priority = temp_p->priority;
-        }
-    }
-
-    // Find high priority process and run
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if(p->state != RUNNABLE && p->priority != top_priority)
-            continue;
-
-        int tmp_tick = 0;
+    if(decide_scheduler()){
+        // MLFQ
+        // Loop over process table looking for process to run.
+        acquire(&ptable.lock);
         
-        // exec process with diffrent time quantum
-        while(p->state == RUNNABLE && tmp_tick < time_quantum[p->priority]){
-            c->proc = p;
-            switchuvm(p);
-            p->state = RUNNING;
-            swtch(&(c->scheduler), p->context);
-            switchkvm();
-            tmp_tick++;
-        }
+        // Dohyun
+        int top_priority = 3;
 
-        p->tick += tmp_tick;
-        total_tick += tmp_tick;
-
-        // priority level down if process over the time quantum
-        if(p->priority != 2){
-            if(p->tick > time_allotment[p->priority]){
-                p->priority++;
-                p->tick = 0;
+        // Get highest Priority, in this code most "lower priority number" means  higher than other.
+        for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
+            if(temp_p->state != RUNNABLE && temp_p->stride != 0){
+                continue;
+            }
+            if(temp_p->priority < top_priority){
+                top_priority = temp_p->priority;
             }
         }
 
-        // priority boost
-        if(total_tick >= 100){
-            total_tick = 0;
-            for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
-                if(temp_p->priority > 0){
-                    temp_p->priority = 0;
-                    top_priority = 0;
+        // Find high priority process and run
+        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+            if(p->state != RUNNABLE && p->priority != top_priority && p->stride != 0)
+                continue;
+
+            int tmp_tick = 0;
+            
+            // exec process with diffrent time quantum
+            while(p->state == RUNNABLE && tmp_tick < time_quantum[p->priority]){
+                c->proc = p;
+                switchuvm(p);
+                p->state = RUNNING;
+                swtch(&(c->scheduler), p->context);
+                switchkvm();
+                tmp_tick++;
+                c->proc = 0;
+            }
+
+            p->tick += tmp_tick;
+            total_tick += tmp_tick;
+
+            // priority level down if process over the time quantum
+            if(p->priority != 2){
+                if(p->tick > time_allotment[p->priority]){
+                    p->priority++;
+                    p->tick = 0;
                 }
             }
+
+            // priority boost
+            if(total_tick >= 100){
+                total_tick = 0;
+                for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
+                    if(temp_p->priority > 0){
+                        temp_p->priority = 0;
+                        top_priority = 0;
+                    }
+                }
+            }
+           // c->proc = 0;
+        }
+    }else{
+        //Stride Scheudling
+        int min_distance = 0;
+        
+        acquire(&ptable.lock);
+        for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
+            if(temp_p->state == RUNNABLE && temp_p->stride != 0){
+                min_distance = temp_p->distance;
+                break;
+            }
+        }
+        // find the min_distance 
+        for(; temp_p < &ptable.proc[NPROC]; temp_p++){
+            if(temp_p->state == RUNNABLE && temp_p->stride != 0 && temp_p->distance < min_distance){
+                min_distance = temp_p->distance;
+            }
+        }
+        // if process's distance is min_distance
+        // swtch
+
+        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+            if(p->state == RUNNABLE && p->stride && p->distance == min_distance){
+                p->distance += p->stride;
+                c->proc = p;
+                switchuvm(p);
+                p->state = RUNNING;
+                swtch(&(c->scheduler), p->context);
+                switchkvm();
+                c->proc = 0;
+            }
         }
 
-        c->proc = 0;
+        release(&ptable.lock);
     }
+    
+    
 
 
     /* Dohyun, this is Original code.
@@ -637,9 +701,30 @@ getlev(void)
 
 int
 set_cpu_share(int percent){
-    if(percent <= 0) return -1;
-    if(total_percent + percent > 80) return -1;
+    if(percent <= 0) return -2;
+    if(total_percent + percent > 80) return -3;
     total_percent += percent;
+    myproc()->percent = percent;
+    
+    struct proc *p;
+    acquire(&ptable.lock);
+    int max_distance = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if(p->stride){
+            p->stride = total_percent / p->percent;
+            if(max_distance < p->distance) max_distance = p->distance;
+        }
+    }
+    release(&ptable.lock);
+
+    // init new process's distance as max_distance
+    myproc()->distance = max_distance;
+    return percent;
+}
+
+void
+renew_stride(void)
+{
     struct proc *p;
     acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
@@ -648,5 +733,4 @@ set_cpu_share(int percent){
         }
     }
     release(&ptable.lock);
-    return percent;
 }
