@@ -444,7 +444,7 @@ scheduler(void)
                     }
                 }
             }
-           // c->proc = 0;
+            c->proc = 0;
         }
     }else{
         //Stride Scheudling
@@ -477,8 +477,6 @@ scheduler(void)
                 c->proc = 0;
             }
         }
-
-        release(&ptable.lock);
     }
     
     
