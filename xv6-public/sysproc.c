@@ -35,11 +35,21 @@ sys_kill(void)
     return -1;
   return kill(pid);
 }
-
+int sys_getppid(void)
+{
+    return getppid();
+}
 int
 sys_getpid(void)
 {
   return myproc()->pid;
+}
+
+int
+sys_yield()
+{
+    yield();
+    return 0;
 }
 
 int
