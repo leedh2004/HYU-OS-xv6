@@ -53,6 +53,11 @@ struct proc {
   // MLFQ by  Dohyun LEE
   int tick;
   int priority;
+
+  // Stride
+  int stride;
+  int distance;
+  int percent;
 };
 
 // Process memory is laid out contiguously, low addresses first:

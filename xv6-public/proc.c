@@ -7,8 +7,6 @@
 #include "proc.h"
 #include "spinlock.h"
 
-// Dohyun
-
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -21,6 +19,11 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
+// for Stride Scheudling
+int mlfq_distance = 0;
+int stride_distance = 0;
+int total_percent = 0;
 
 void
 pinit(void)
@@ -321,6 +324,24 @@ wait(void)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
+
+int 
+decide_scheduler(void)
+{
+    if(total_percent == 0) return 1;
+
+    int stride_stride = 100 / total_percent;
+    int mlfq_stride = 100 / (100 - total_percent);
+
+    if(mlfq_distance < stride_distance){
+        mlfq_distance += mlfq_stride;
+        return 1;
+    }else{
+        stride_distance += stride_stride;
+        return 0;
+    }
+}
+
 void
 scheduler(void)
 {
@@ -612,4 +633,20 @@ int
 getlev(void)
 {
     return myproc()->priority;
+}
+
+int
+set_cpu_share(int percent){
+    if(percent <= 0) return -1;
+    if(total_percent + percent > 80) return -1;
+    total_percent += percent;
+    struct proc *p;
+    acquire(&ptable.lock);
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if(p->stride){
+            p->stride = total_percent / p->percent;
+        }
+    }
+    release(&ptable.lock);
+    return percent;
 }
