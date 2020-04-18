@@ -186,7 +186,8 @@ UPROGS=\
     _test\
     _test_yield\
     _test_mlfq\
-
+    _test_master\
+    
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
 
