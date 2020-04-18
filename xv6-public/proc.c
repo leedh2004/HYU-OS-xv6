@@ -7,6 +7,8 @@
 #include "proc.h"
 #include "spinlock.h"
 
+// Dohyun
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -324,6 +326,14 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  
+  // Dohyun, this structure is needed to find high priority in ptable 
+  struct proc *temp_p; 
+  // Dohyun, this array is needed to exec specification
+  int time_quantum[3] = {1, 2, 4};
+  int time_allotment[2] = {5, 10};
+  // Dohyun, this is neeeded to priority boost
+  int total_tick = 0;
   c->proc = 0;
   
   for(;;){
@@ -332,6 +342,64 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+    
+    // Dohyun
+    int top_priority = 3;
+
+    // Get highest Priority, in this code most "lower priority number" means  higher than other.
+    for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
+        if(temp_p->state != RUNNABLE){
+            continue;
+        }
+        if(top_priority > temp_p->priority){
+            top_priority = temp_p->priority;
+        }
+    }
+
+    // Find high priority process and run
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if(p->state != RUNNABLE && p->priority != top_priority)
+            continue;
+
+        int tmp_tick = 0;
+        
+        // exec process with diffrent time quantum
+        while(p->state == RUNNABLE && tmp_tick < time_quantum[p->priority]){
+            c->proc = p;
+            switchuvm(p);
+            p->state = RUNNING;
+            swtch(&(c->scheduler), p->context);
+            switchkvm();
+            tmp_tick++;
+        }
+
+        p->tick += tmp_tick;
+        total_tick += tmp_tick;
+
+        // priority level down if process over the time quantum
+        if(p->priority != 2){
+            if(p->tick > time_allotment[p->priority]){
+                p->priority++;
+                p->tick = 0;
+            }
+        }
+
+        // priority boost
+        if(total_tick >= 100){
+            total_tick = 0;
+            for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
+                if(temp_p->priority > 0){
+                    temp_p->priority = 0;
+                    top_priority = 0;
+                }
+            }
+        }
+
+        c->proc = 0;
+    }
+
+
+    /* Dohyun, this is Original code.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
@@ -350,6 +418,7 @@ scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
+    */
     release(&ptable.lock);
 
   }
