@@ -274,6 +274,9 @@ exit(void)
       if(p->percent > 0){
         total_percent -= p->percent;
         p->percent = 0;
+        if(total_percent >0){
+            renew_stride();
+        }
         p->stride = 0;
         p->distance = 0;
       }
@@ -354,16 +357,19 @@ wait(void)
 int 
 decide_scheduler(void)
 {
-    if(total_percent == 0) return 1;
+    if(total_percent == 0){
+        return 1;
+    }
     else{
         int stride_stride = 100 / total_percent;
         int mlfq_stride = 100 / (100 - total_percent);
-
         if(mlfq_distance < stride_distance){
             mlfq_distance += mlfq_stride;
+            //cprintf("mlfq seleceted\n");
             return 1;
         }else{
             stride_distance += stride_stride;
+            //cprintf("stride seleceted\n");
             return 0;
         }
     }
@@ -372,11 +378,9 @@ decide_scheduler(void)
 void
 scheduler(void)
 {
-  struct proc *p;
   struct cpu *c = mycpu();
   
   // Dohyun, this structure is needed to find high priority in ptable 
-  struct proc *temp_p; 
   // Dohyun, this array is needed to exec specification
   int time_quantum[3] = {1, 2, 4};
   int time_allotment[2] = {5, 10};
@@ -387,10 +391,11 @@ scheduler(void)
   for(;;){
     // Enable interrupts on this processor.
     sti();
+    acquire(&ptable.lock);
     if(decide_scheduler()){
         // MLFQ
         // Loop over process table looking for process to run.
-        acquire(&ptable.lock);
+        struct proc *temp_p, *p;
         
         // Dohyun
         int top_priority = 3;
@@ -413,10 +418,11 @@ scheduler(void)
             int tmp_tick = 0;
             
             // exec process with diffrent time quantum
-            while(p->state == RUNNABLE && tmp_tick < time_quantum[p->priority]){
+            while(p->state == RUNNABLE && tmp_tick < time_quantum[p->priority] && p->stride == 0){
                 c->proc = p;
                 switchuvm(p);
                 p->state = RUNNING;
+                //cprintf("MLFQ selected pid %d\n", p->pid);
                 swtch(&(c->scheduler), p->context);
                 switchkvm();
                 tmp_tick++;
@@ -444,30 +450,29 @@ scheduler(void)
                     }
                 }
             }
-            c->proc = 0;
         }
     }else{
         //Stride Scheudling
         int min_distance = 0;
-        
-        acquire(&ptable.lock);
-        for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
-            if(temp_p->state == RUNNABLE && temp_p->stride != 0){
-                min_distance = temp_p->distance;
+        struct proc *temp, *p;
+        for(temp = ptable.proc; temp < &ptable.proc[NPROC]; temp++){
+            if(temp->state == RUNNABLE && temp->stride != 0){
+                min_distance = temp->distance;
                 break;
             }
         }
         // find the min_distance 
-        for(; temp_p < &ptable.proc[NPROC]; temp_p++){
-            if(temp_p->state == RUNNABLE && temp_p->stride != 0 && temp_p->distance < min_distance){
-                min_distance = temp_p->distance;
+        for(; temp < &ptable.proc[NPROC]; temp++){
+            if(temp->state == RUNNABLE && temp->stride != 0 && temp->distance < min_distance){
+                min_distance = temp->distance;
             }
         }
         // if process's distance is min_distance
         // swtch
 
         for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-            if(p->state == RUNNABLE && p->stride && p->distance == min_distance){
+            if(p->state == RUNNABLE && p->stride != 0 && p->distance == min_distance){
+                //cprintf("STRIDE selected pid %d, distance: %d\n", p->pid, p->distance);
                 p->distance += p->stride;
                 c->proc = p;
                 switchuvm(p);
@@ -478,10 +483,8 @@ scheduler(void)
             }
         }
     }
+    release(&ptable.lock);
     
-    
-
-
     /* Dohyun, this is Original code.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
@@ -502,7 +505,6 @@ scheduler(void)
       c->proc = 0;
     }
     */
-    release(&ptable.lock);
 
   }
 }
@@ -699,24 +701,26 @@ getlev(void)
 
 int
 set_cpu_share(int percent){
-    if(percent <= 0) return -2;
-    if(total_percent + percent > 80) return -3;
+    if(percent <= 0) return -1;
+    if(total_percent + percent > 80) return -1;
     total_percent += percent;
     myproc()->percent = percent;
-    
+    myproc()->stride = 1; 
+    myproc()->distance = 0;
     struct proc *p;
     acquire(&ptable.lock);
+    //cprintf("renew stride\n");
     int max_distance = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if(p->stride){
+        if(p->stride != 0){
             p->stride = total_percent / p->percent;
+            //cprintf("pid: %d, stride: %d\n", p->pid, p->stride);
             if(max_distance < p->distance) max_distance = p->distance;
         }
     }
-    release(&ptable.lock);
-
-    // init new process's distance as max_distance
     myproc()->distance = max_distance;
+    release(&ptable.lock);
+    // init new process's distance as max_distance
     return percent;
 }
 
@@ -724,11 +728,13 @@ void
 renew_stride(void)
 {
     struct proc *p;
-    acquire(&ptable.lock);
+   // acquire(&ptable.lock);
+   // cprintf("renew stride\n");
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
         if(p->stride){
             p->stride = total_percent / p->percent;
+            //cprintf("pid: %d, stride: %d\n", p->pid, p->stride);
         }
     }
-    release(&ptable.lock);
+   // release(&ptable.lock);
 }
