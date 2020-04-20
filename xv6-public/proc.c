@@ -402,7 +402,7 @@ scheduler(void)
 
         // Get highest Priority, in this code most "lower priority number" means  higher than other.
         for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
-            if(temp_p->state != RUNNABLE && temp_p->stride != 0){
+            if(temp_p->state != RUNNABLE || temp_p->stride != 0){
                 continue;
             }
             if(temp_p->priority < top_priority){
@@ -412,7 +412,7 @@ scheduler(void)
 
         // Find high priority process and run
         for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-            if(p->state != RUNNABLE && p->priority != top_priority && p->stride != 0)
+            if(p->state != RUNNABLE || p->priority != top_priority)
                 continue;
 
             int tmp_tick = 0;
