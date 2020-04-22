@@ -19,14 +19,20 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
 int getlev(void);
+void priority_boost(void);
 int set_cpu_share(int percent);
 void renew_stride(void);
+void reset_distance(void);
 
-// for Stride Scheudling
+// for MLFQ
+int total_tick = 0;
+// for Stride
+int total_percent = 0;
+// for MFLQ + Stride Scheduling
 int mlfq_distance = 0;
 int stride_distance = 0;
-int total_percent = 0;
 
 void
 pinit(void)
@@ -361,8 +367,15 @@ decide_scheduler(void)
         return 1;
     }
     else{
-        int stride_stride = 100 / total_percent;
-        int mlfq_stride = 100 / (100 - total_percent);
+        int stride_stride = 1000 / total_percent;
+        int mlfq_stride = 1000 / (100 - total_percent);
+
+        // when overflow is occured, reset distance
+        if(mlfq_distance < 0 || stride_distance < 0){
+            mlfq_distance = 0;
+            stride_distance = 0;
+        }
+
         if(mlfq_distance < stride_distance){
             mlfq_distance += mlfq_stride;
             //cprintf("mlfq seleceted\n");
@@ -385,7 +398,6 @@ scheduler(void)
   int time_quantum[3] = {1, 2, 4};
   int time_allotment[2] = {5, 10};
   // Dohyun, this is neeeded to priority boost
-  int total_tick = 0;
   c->proc = 0;
   
   for(;;){
@@ -409,13 +421,13 @@ scheduler(void)
 
         // Find high priority process and run
         for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-            if(p->state != RUNNABLE || p->priority > top_priority || p->stride != 0)
+            if(p->state != RUNNABLE || p->priority > top_priority || p->stride != 0){
                 continue;
+            }
 
             int tmp_tick = 0;
-            
             // exec process with diffrent time quantum
-            while(p->state == RUNNABLE && tmp_tick < time_quantum[p->priority]){
+            while(p->state == RUNNABLE &&tmp_tick < time_quantum[p->priority]){
                 c->proc = p;
                 switchuvm(p);
                 p->state = RUNNING;
@@ -425,30 +437,22 @@ scheduler(void)
                 swtch(&(c->scheduler), p->context);
                 switchkvm();
                 tmp_tick++;
+                total_tick++;
+                //priority_boost
+                if(total_tick >= 100){
+                    priority_boost();
+                }
                 c->proc = 0;
             }
 
             p->tick += tmp_tick;
-            total_tick += tmp_tick;
 
             // priority level down if process over the time quantum
-            if(p->priority != 2){
-                if(p->tick > time_allotment[p->priority]){
-                    p->priority++;
-                    p->tick = 0;
-                }
+            if(p->priority != 2 && p->tick > time_allotment[p->priority]){
+                p->priority++;
+                p->tick = 0;
             }
 
-            // priority boost
-            if(total_tick >= 100){
-                total_tick = 0;
-                for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
-                    if(temp_p->priority > 0){
-                        temp_p->priority = 0;
-                        top_priority = 0;
-                    }
-                }
-            }
         }
     }else{
         //Stride Scheudling
@@ -465,6 +469,11 @@ scheduler(void)
             if(temp->stride != 0 && temp->distance < min_distance){
                 min_distance = temp->distance;
             }
+        }
+        // overflow is occured, reset distance.
+        if(min_distance < 0){
+            reset_distance();
+            min_distance = 0;
         }
         //cprintf("real min_distance %d\n", min_distance);
         // if process's distance is min_distance
@@ -700,6 +709,17 @@ getlev(void)
     return myproc()->priority;
 }
 
+void priority_boost(void){
+    struct proc *temp_p;
+    total_tick = 0;
+    for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
+        if(temp_p->priority > 0){
+            temp_p->priority = 0;
+            temp_p->tick = 0;
+        }
+    }
+}
+
 int
 set_cpu_share(int percent){
     struct proc *p;
@@ -749,8 +769,18 @@ renew_stride(void)
     // 5 / 2 = 2, 5 / 3 = 1, process B more running 2 times than A.
     // it is unfair.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if(p->stride){
+        if( p->stride != 0 ){
             p->stride = (total_percent * 20)/ p->percent;
+        }
+    }
+}
+
+void
+reset_distance(void){
+    struct proc *p;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if( p->stride != 0 ){
+            p->distance = 0;
         }
     }
 }
