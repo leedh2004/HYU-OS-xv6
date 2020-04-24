@@ -23,9 +23,12 @@ static void wakeup1(void *chan);
 int getlev(void);
 void priority_boost(void);
 int set_cpu_share(int percent);
-//void renew_stride(void);
 void reset_distance(void);
 
+// Dohyun, this structure is needed to find high priority in ptable 
+// Dohyun, this array is needed to exec specification
+int time_quantum[3] = {1, 2, 4};
+int time_allotment[2] = {5, 10};
 // for MLFQ
 int total_tick = 0;
 // for Stride
@@ -132,7 +135,6 @@ found:
   p->percent = 0;
   p->stride = 0;
   p->distance = 0;
-
   return p;
 }
 
@@ -280,10 +282,9 @@ exit(void)
       //Dohyun
       if(p->percent > 0){
         total_percent -= p->percent;
+        p->priority = 0;
+        p->tick = 0;
         p->percent = 0;
-        //if(total_percent >0){
-        //    renew_stride();
-        //}
         p->stride = 0;
         p->distance = 0;
       }
@@ -294,12 +295,11 @@ exit(void)
   }
   if(curproc->percent > 0){
     total_percent -= curproc->percent;
+    curproc->priority = 0;
+    curproc->tick = 0;
     curproc->percent = 0;
     curproc->stride = 0;
     curproc->distance = 0;
-    //if(total_percent > 0){
-    //    renew_stride();
-    //}
   }
 
   // Jump into the scheduler, never to return.
@@ -365,6 +365,7 @@ int
 decide_scheduler(void)
 {
     if(total_percent == 0){
+        //mlfq selected
         return 1;
     }
     else{
@@ -378,12 +379,12 @@ decide_scheduler(void)
         }
 
         if(mlfq_distance < stride_distance){
+            // mlfq selected
             mlfq_distance += mlfq_stride;
-            //cprintf("mlfq seleceted\n");
             return 1;
         }else{
+            // stride seleceted
             stride_distance += stride_stride;
-            //cprintf("stride seleceted\n");
             return 0;
         }
     }
@@ -394,23 +395,19 @@ scheduler(void)
 {
   struct cpu *c = mycpu();
   
-  // Dohyun, this structure is needed to find high priority in ptable 
-  // Dohyun, this array is needed to exec specification
-  int time_quantum[3] = {1, 2, 4};
-  int time_allotment[2] = {5, 10};
   // Dohyun, this is neeeded to priority boost
   c->proc = 0;
   
   for(;;){
     // Enable interrupts on this processor.
     sti();
-    acquire(&ptable.lock);
     if(decide_scheduler()){
         // MLFQ
         struct proc *temp_p, *p;
-        
         int top_priority = 2;
         // Get highest Priority, in this code most "lower priority number" means  higher than other.
+        acquire(&ptable.lock);
+
         for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
             if(temp_p->state != RUNNABLE || temp_p->stride != 0){
                 continue;
@@ -419,43 +416,44 @@ scheduler(void)
                 top_priority = temp_p->priority;
             }
         }
-
         // Find high priority process and run
         for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
             if(p->state != RUNNABLE || p->priority > top_priority || p->stride != 0){
                 continue;
             }
-
-            int tmp_tick = 0;
             // exec process with diffrent time quantum
-            while(p->state == RUNNABLE && tmp_tick < time_quantum[p->priority] && p->stride == 0){
+            for(int cnt=0; cnt < time_quantum[p->priority]; cnt++){
+                if(p->state != RUNNABLE){
+                    continue;
+                }
                 c->proc = p;
                 switchuvm(p);
                 p->state = RUNNING;
                 swtch(&(c->scheduler), p->context);
                 switchkvm();
-                tmp_tick++;
                 total_tick++;
-                //priority_boost
-                if(total_tick >= 100){
-                    priority_boost();
-                }
+                p->tick++;
                 c->proc = 0;
+                if(p->priority < 2 && p->tick >= time_allotment[p->priority]){
+                    break;
+                }
             }
-
-            p->tick += tmp_tick;
-
             // priority level down if process over the time quantum
-            if(p->priority != 2 && p->tick > time_allotment[p->priority]){
+            if(p->priority != 2 && p->tick >= time_allotment[p->priority]){
                 p->priority++;
                 p->tick = 0;
             }
-
+            //priority_boost
+            if(total_tick >= 100){
+                priority_boost();
+            }
         }
+        release(&ptable.lock);
     }else{
         //Stride Scheudling
         int min_distance = 0;
         struct proc *temp, *p;
+        acquire(&ptable.lock);
         for(temp = ptable.proc; temp < &ptable.proc[NPROC]; temp++){
             if( temp->stride != 0){
                 min_distance = temp->distance;
@@ -490,8 +488,8 @@ scheduler(void)
                 c->proc = 0;
             }
         }
+        release(&ptable.lock);
     }
-    release(&ptable.lock);
     
     /* Dohyun, this is Original code.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
@@ -709,13 +707,13 @@ getlev(void)
 
 void priority_boost(void){
     struct proc *temp_p;
-    total_tick = 0;
     for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
         if(temp_p->priority > 0){
             temp_p->priority = 0;
             temp_p->tick = 0;
         }
     }
+    total_tick = 0;
 }
 
 int
