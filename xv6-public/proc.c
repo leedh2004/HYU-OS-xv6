@@ -432,7 +432,6 @@ scheduler(void)
                 switchkvm();
                 total_tick++;
                 p->tick++;
-                cprintf("MLFQ pid %d, p->priority %d, p->tick %d, total_tick %d\n", p->pid, p->priority, p->tick, total_tick);
                 c->proc = 0;
                 if(p->priority < 2 && p->tick >= time_allotment[p->priority]){
                     break;
@@ -471,14 +470,11 @@ scheduler(void)
             reset_distance();
             min_distance = 0;
         }
-        //cprintf("real min_distance %d\n", min_distance);
         // if process's distance is min_distance
         // swtch
 
         for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
             if(p->state == RUNNABLE && p->stride != 0 && p->distance == min_distance){
-                //cprintf("min_distance %d\n", min_distance);
-                //cprintf("STRIDE selected pid %d, distance: %d\n", p->pid, p->distance);
                 p->distance += p->stride;
                 c->proc = p;
                 switchuvm(p);
@@ -753,25 +749,6 @@ set_cpu_share(int percent){
     release(&ptable.lock);
     return percent;
 }
-
-/*
-void
-renew_stride(void)
-{
-    struct proc *p;
-    // I think total_percent * 20 is proper.
-    // if total_percent is too small there will be loss stride.
-    // think about process A has 2 percent, B has 3 percent
-    // then total_percent is 5
-    // 5 / 2 = 2, 5 / 3 = 1, process B more running 2 times than A.
-    // it is unfair.
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if( p->stride != 0 ){
-            p->stride = (total_percent * 20)/ p->percent;
-        }
-    }
-}
-*/
 
 void
 reset_distance(void){
