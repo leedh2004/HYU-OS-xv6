@@ -23,12 +23,13 @@ static void wakeup1(void *chan);
 int getlev(void);
 void priority_boost(void);
 int set_cpu_share(int percent);
-void renew_stride(void);
+//void renew_stride(void);
 void reset_distance(void);
 
 // for MLFQ
 int total_tick = 0;
 // for Stride
+int BIG_TICKETS = 3000;
 int total_percent = 0;
 // for MFLQ + Stride Scheduling
 int mlfq_distance = 0;
@@ -232,7 +233,7 @@ fork(void)
 
   pid = np->pid;
 
-  acquire(&ptable.lock);
+acquire(&ptable.lock);
 
   np->state = RUNNABLE;
 
@@ -280,9 +281,9 @@ exit(void)
       if(p->percent > 0){
         total_percent -= p->percent;
         p->percent = 0;
-        if(total_percent >0){
-            renew_stride();
-        }
+        //if(total_percent >0){
+        //    renew_stride();
+        //}
         p->stride = 0;
         p->distance = 0;
       }
@@ -296,9 +297,9 @@ exit(void)
     curproc->percent = 0;
     curproc->stride = 0;
     curproc->distance = 0;
-    if(total_percent > 0){
-        renew_stride();
-    }
+    //if(total_percent > 0){
+    //    renew_stride();
+    //}
   }
 
   // Jump into the scheduler, never to return.
@@ -367,8 +368,8 @@ decide_scheduler(void)
         return 1;
     }
     else{
-        int stride_stride = 1000 / total_percent;
-        int mlfq_stride = 1000 / (100 - total_percent);
+        int stride_stride = BIG_TICKETS / total_percent;
+        int mlfq_stride = BIG_TICKETS / (100 - total_percent);
 
         // when overflow is occured, reset distance
         if(mlfq_distance < 0 || stride_distance < 0){
@@ -427,13 +428,10 @@ scheduler(void)
 
             int tmp_tick = 0;
             // exec process with diffrent time quantum
-            while(p->state == RUNNABLE &&tmp_tick < time_quantum[p->priority]){
+            while(p->state == RUNNABLE && tmp_tick < time_quantum[p->priority] && p->stride == 0){
                 c->proc = p;
                 switchuvm(p);
                 p->state = RUNNING;
-                if(p->stride != 0){
-                    cprintf("Why you here? %d\n", p->pid);
-                }
                 swtch(&(c->scheduler), p->context);
                 switchkvm();
                 tmp_tick++;
@@ -748,7 +746,7 @@ set_cpu_share(int percent){
     // renew all process's stride, because total_percent is changed. 
     for(; p < &ptable.proc[NPROC]; p++){
         if(p->stride != 0){
-            p->stride = (total_percent * 20) / p->percent;
+            p->stride = BIG_TICKETS / p->percent;
             if(p->distance < min_distance) min_distance = p->distance;
         }
     }
@@ -758,6 +756,7 @@ set_cpu_share(int percent){
     return percent;
 }
 
+/*
 void
 renew_stride(void)
 {
@@ -774,6 +773,7 @@ renew_stride(void)
         }
     }
 }
+*/
 
 void
 reset_distance(void){
