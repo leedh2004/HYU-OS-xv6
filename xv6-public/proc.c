@@ -25,8 +25,8 @@ void priority_boost(void);
 int set_cpu_share(int percent);
 void reset_distance(void);
 
-// Dohyun, this structure is needed to find high priority in ptable 
-// Dohyun, this array is needed to exec specification
+// this structure is needed to find high priority in ptable 
+// this array is needed to exec specification
 int time_quantum[3] = {1, 2, 4};
 int time_allotment[2] = {5, 10};
 // for MLFQ
@@ -395,7 +395,7 @@ scheduler(void)
 {
   struct cpu *c = mycpu();
   
-  // Dohyun, this is neeeded to priority boost
+  // this is neeeded to priority boost
   c->proc = 0;
   
   for(;;){
@@ -441,6 +441,7 @@ scheduler(void)
                     priority_boost();
                 }
             }
+            p->tick++;
             // priority level down if process over the time quantum
             if(p->priority != 2 && p->tick >= time_allotment[p->priority]){
                 p->priority++;
