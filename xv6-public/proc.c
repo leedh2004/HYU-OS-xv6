@@ -407,7 +407,6 @@ scheduler(void)
         int top_priority = 2;
         // Get highest Priority, in this code most "lower priority number" means  higher than other.
         acquire(&ptable.lock);
-
         for(temp_p = ptable.proc; temp_p < &ptable.proc[NPROC]; temp_p++){
             if(temp_p->state != RUNNABLE || temp_p->stride != 0){
                 continue;
@@ -423,7 +422,7 @@ scheduler(void)
             }
             // exec process with diffrent time quantum
             for(int cnt=0; cnt < time_quantum[p->priority]; cnt++){
-                if(p->state != RUNNABLE){
+                if(p->state != RUNNABLE || p->stride != 0){
                     continue;
                 }
                 c->proc = p;
@@ -433,19 +432,20 @@ scheduler(void)
                 switchkvm();
                 total_tick++;
                 p->tick++;
+                cprintf("MLFQ pid %d, p->priority %d, p->tick %d, total_tick %d\n", p->pid, p->priority, p->tick, total_tick);
                 c->proc = 0;
                 if(p->priority < 2 && p->tick >= time_allotment[p->priority]){
                     break;
+                }
+                //priority_boost
+                if(total_tick >= 100){
+                    priority_boost();
                 }
             }
             // priority level down if process over the time quantum
             if(p->priority != 2 && p->tick >= time_allotment[p->priority]){
                 p->priority++;
                 p->tick = 0;
-            }
-            //priority_boost
-            if(total_tick >= 100){
-                priority_boost();
             }
         }
         release(&ptable.lock);
