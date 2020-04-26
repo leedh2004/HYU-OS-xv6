@@ -430,8 +430,6 @@ scheduler(void)
                 p->state = RUNNING;
                 swtch(&(c->scheduler), p->context);
                 switchkvm();
-                total_tick++;
-                p->tick++;
                 c->proc = 0;
                 if(p->priority < 2 && p->tick >= time_allotment[p->priority]){
                     break;
@@ -441,6 +439,7 @@ scheduler(void)
                     priority_boost();
                 }
             }
+            total_tick++;
             p->tick++;
             // priority level down if process over the time quantum
             if(p->priority != 2 && p->tick >= time_allotment[p->priority]){
