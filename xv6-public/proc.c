@@ -434,13 +434,13 @@ scheduler(void)
                 if(p->priority < 2 && p->tick >= time_allotment[p->priority]){
                     break;
                 }
-                //priority_boost
-                if(total_tick >= 100){
-                    priority_boost();
-                }
             }
             total_tick++;
             p->tick++;
+            //priority_boost
+            if(total_tick >= 100){
+                priority_boost();
+            }
             // priority level down if process over the time quantum
             if(p->priority != 2 && p->tick >= time_allotment[p->priority]){
                 p->priority++;
